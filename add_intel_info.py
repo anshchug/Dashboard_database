@@ -1,32 +1,39 @@
 import h5py
 import numpy as np
+import math
 
 arch_info_url1 = 'https://www.intel.com/content/www/us/en/ark/products/codename/74979/products-formerly-ice-lake.html'
 
-intel_arch = [{'8362' : {'Total Cores' : '32', 'Total Threads' : '64', 'Max Turbo Frequency' : '3.60 GHz', 'Processor Base Frequency' : '2.80 GHz', 'Cache' : '48 Mb', 'Intel UPI Speed' : '11.2 GT/s', 'Max # of UPI Links' : '3', 'TDP': '265 W', 'Maximum Memory Speed': '3200 MHz', 'Max # of Memory Channels': '8'}}, 
-              {'8380' : {'Total Cores' : '40', 'Total Threads' : '80', 'Max Turbo Frequency' : '3.40 GHz', 'Processor Base Frequency' : '2.30 GHz', 'Cache' : '60 Mb', 'Intel UPI Speed' : '11.2 GT/s', 'Max # of UPI Links' : '3', 'TDP': '270 W', 'Maximum Memory Speed': '3200 MHz', 'Max # of Memory Channels': '8'}}, 
-              {'8462Y' : {'Total Cores' : '32', 'Total Threads' : '64', 'Max Turbo Frequency' : '4.10 GHz', 'Processor Base Frequency' : '2.80 GHz', 'Cache' : '60 Mb', 'Intel UPI Speed' : '16.0 GT/s', 'Max # of UPI Links' : '3', 'TDP': '300 W', 'Maximum Memory Speed': '4800 MHz', 'Max # of Memory Channels': '8'}}, 
-              {'8490H' : {'Total Cores' : '60', 'Total Threads' : '120', 'Max Turbo Frequency' : '3.50 GHz', 'Processor Base Frequency' : '1.90 GHz', 'Cache' : '112.5 Mb', 'Intel UPI Speed' : '16.0 GT/s', 'Max # of UPI Links' : '4', 'TDP': '350 W', 'Maximum Memory Speed': '4800 MHz', 'Max # of Memory Channels': '8'}}
-            ]
+
 filename = 'dashboard_database.h5'
 
-def extract_info(h5_file, key, value):
-    with h5py.File(h5_file, 'r+') as f:
-        for group_name in f:
-            group = f[group_name]
-            for subgroup_name in group:
-                if subgroup_name == key:
-                    print(f"subgroup {subgroup_name} matched with key {key}")
-                    subgroup = group[subgroup_name]
-                    keys_array = np.array([key.encode('utf-8') for key in value.keys()], dtype='S')
-                    values_array = np.array([key.encode('utf-8') for key in value.values()], dtype='S')
-                    combined_data = np.column_stack((keys_array, values_array))
-                    subgroup.create_dataset('CPU_architectire', data=combined_data)
-                    #print(combined_data)
-                    break
-    f.close()
+def extract_info(h5_file, g_name, bname, app_name, perfMetric, threads, cpu_name, intel_arch, dataset_names):
+    flattened_intel_arch = {list(d.keys())[0]: list(d.values())[0] for d in intel_arch}
+    value = flattened_intel_arch.get(cpu_name, None)
+    intel_threads = (list(value.values())[1])
+    cores = list(value.values())[0]
+    max_freq = list(value.values())[2]
+    base_freq = list(value.values())[3]
+    L3_cache = list(value.values())[4]
+    tdp = list(value.values())[7]
+    mem_speed = list(value.values())[8]
+    mem_channels = list(value.values())[9]
+    mem_bw = round(mem_speed * mem_channels * 8 / (8 *1024)) #multipled by 8 as 64 bit (8 bytes) data bus is assumed and divided by 1024 to convert to Gb/s
+    value_list = [cores, intel_threads, max_freq, base_freq, L3_cache, tdp, mem_speed, mem_channels]
+    if (threads == intel_threads):    
+        group = h5_file[g_name]
+        group['b_name'].resize((group['b_name'].shape[0] + 1, ))
+        group['b_name'][-1] = str(app_name.upper()) + '_' + str(bname)
+        group['perf_metric'].resize((group['perf_metric'].shape[0] + 1, ))
+        group['perf_metric'][-1] = perfMetric
+        group['L3_cache_per_core (MB)'].resize((group['L3_cache_per_core (MB)'].shape[0] + 1, ))
+        group['L3_cache_per_core (MB)'][-1] = L3_cache / cores
 
-for i in range(len(intel_arch)):
-    for key, value in intel_arch[i].items():
-        print(f"Key: {key}")
-        extract_info(filename, key, value)
+        count = 0
+        for name in dataset_names[3:]:
+            group[name].resize((group[name].shape[0] + 1, ))
+            group[name][-1] = value_list[count]
+            count += 1
+    else:
+        print("Max no of cores do not match the no of cores utilized by benchmark (UNDER UTILIZATION OF THE CORES!)")
+        print(f"Max cores = {max_cores} whereas cores utilization = {threads}")
